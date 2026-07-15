@@ -22,10 +22,11 @@ public class ModelMerger {
         List<Component> all = flattenComponents(arch.components());
 
         Map<String, List<Component>> coverage = buildCoverage(all, sec);
+        Map<String, List<Link>> linksByConnector = buildLinksByConnector(arch.links());
 
         List<String> unresolved = new ArrayList<>();
         List<ResolvedRule> resolvedRules = sec.rules().stream()
-                .map(rule -> resolveRule(rule, coverage, all, arch, unresolved))
+                .map(rule -> resolveRule(rule, coverage, all, arch, linksByConnector, unresolved))
                 .collect(Collectors.toList());
 
         return new UnifiedModel(arch, sec, coverage, resolvedRules, unresolved);
@@ -72,6 +73,7 @@ public class ModelMerger {
                                              Map<String, List<Component>> coverage,
                                              List<Component> all,
                                              Architecture arch,
+                                             Map<String, List<Link>> linksByConnector,
                                              List<String> unresolved) {
         // resolve each rule's argument slots to components (actx only for Authentication)
         List<Component> sctx = List.of(), tctx = List.of(), actx = List.of();
@@ -89,16 +91,20 @@ public class ModelMerger {
                                         tctx = resolveRef(r.resource(), coverage, all, unresolved); } // what
             case Availability r    -> { sctx = resolveRef(r.target(), coverage, all, unresolved); }   // single context, no path
         }
-        List<ResolvedPath> paths = resolvePaths(sctx, tctx, arch);
+        List<ResolvedPath> paths = resolvePaths(sctx, tctx, arch, linksByConnector);
         return new ResolvedRule(rule, sctx, tctx, actx, paths);
     }
 
     // Which connector(s) actually carry traffic between the two sides: a path exists when
     // an sctx and a tctx component hang off the same connector. Records the connector and
     // the links on each side, so a generator knows where to put a control.
+    //
+    // linksByConnector is built once per merge (see buildLinksByConnector), not rescanned
+    // here per connector: doing so per rule made this O(connectors x links) per call.
     private static List<ResolvedPath> resolvePaths(List<Component> sctx,
                                                    List<Component> tctx,
-                                                   Architecture arch) {
+                                                   Architecture arch,
+                                                   Map<String, List<Link>> linksByConnector) {
         if (sctx.isEmpty() || tctx.isEmpty()) return List.of();
 
         Set<String> sNames = sctx.stream().map(Component::name).collect(Collectors.toSet());
@@ -108,8 +114,7 @@ public class ModelMerger {
         for (Connector conn : arch.connectors()) {
             List<Link> sLinks = new ArrayList<>();
             List<Link> tLinks = new ArrayList<>();
-            for (Link l : arch.links()) {
-                if (!l.connectorName().equals(conn.name())) continue;
+            for (Link l : linksByConnector.getOrDefault(conn.name(), List.of())) {
                 String comp = componentOf(l.portRef());
                 if (sNames.contains(comp)) sLinks.add(l);
                 if (tNames.contains(comp)) tLinks.add(l);
@@ -119,6 +124,15 @@ public class ModelMerger {
                 paths.add(new ResolvedPath(conn.name(), sLinks, tLinks));
         }
         return paths;
+    }
+
+    /** Groups links by connector name, once per merge, preserving arch.links() order within each bucket. */
+    private static Map<String, List<Link>> buildLinksByConnector(List<Link> links) {
+        Map<String, List<Link>> byConnector = new LinkedHashMap<>();
+        for (Link l : links) {
+            byConnector.computeIfAbsent(l.connectorName(), k -> new ArrayList<>()).add(l);
+        }
+        return byConnector;
     }
 
     /** Component name part of a "Component.port" reference (or the whole string if no dot). */
