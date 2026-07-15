@@ -23,10 +23,12 @@ public class ModelMerger {
 
         Map<String, List<Component>> coverage = buildCoverage(all, sec);
         Map<String, List<Link>> linksByConnector = buildLinksByConnector(arch.links());
+        Map<String, Set<String>> componentToConnectors = buildComponentToConnectors(linksByConnector);
+        Map<String, Integer> connectorOrder = buildConnectorOrder(arch.connectors());
 
         List<String> unresolved = new ArrayList<>();
         List<ResolvedRule> resolvedRules = sec.rules().stream()
-                .map(rule -> resolveRule(rule, coverage, all, arch, linksByConnector, unresolved))
+                .map(rule -> resolveRule(rule, coverage, all, linksByConnector, componentToConnectors, connectorOrder, unresolved))
                 .collect(Collectors.toList());
 
         return new UnifiedModel(arch, sec, coverage, resolvedRules, unresolved);
@@ -72,8 +74,9 @@ public class ModelMerger {
     private static ResolvedRule resolveRule(SecurityRule rule,
                                              Map<String, List<Component>> coverage,
                                              List<Component> all,
-                                             Architecture arch,
                                              Map<String, List<Link>> linksByConnector,
+                                             Map<String, Set<String>> componentToConnectors,
+                                             Map<String, Integer> connectorOrder,
                                              List<String> unresolved) {
         // resolve each rule's argument slots to components (actx only for Authentication)
         List<Component> sctx = List.of(), tctx = List.of(), actx = List.of();
@@ -91,7 +94,7 @@ public class ModelMerger {
                                         tctx = resolveRef(r.resource(), coverage, all, unresolved); } // what
             case Availability r    -> { sctx = resolveRef(r.target(), coverage, all, unresolved); }   // single context, no path
         }
-        List<ResolvedPath> paths = resolvePaths(sctx, tctx, arch, linksByConnector);
+        List<ResolvedPath> paths = resolvePaths(sctx, tctx, linksByConnector, componentToConnectors, connectorOrder);
         return new ResolvedRule(rule, sctx, tctx, actx, paths);
     }
 
@@ -99,29 +102,43 @@ public class ModelMerger {
     // an sctx and a tctx component hang off the same connector. Records the connector and
     // the links on each side, so a generator knows where to put a control.
     //
-    // linksByConnector is built once per merge (see buildLinksByConnector), not rescanned
-    // here per connector: doing so per rule made this O(connectors x links) per call.
+    // Rather than scanning every architecture connector per rule, narrow to the connectors
+    // the sctx and tctx components actually touch (via componentToConnectors, built once per
+    // merge) and intersect the two sides -- a path can only exist on a connector both sides
+    // reach. connectorOrder restores the architecture's declared connector order in the
+    // result, so output is identical to a full scan, just without paying for one.
     private static List<ResolvedPath> resolvePaths(List<Component> sctx,
                                                    List<Component> tctx,
-                                                   Architecture arch,
-                                                   Map<String, List<Link>> linksByConnector) {
+                                                   Map<String, List<Link>> linksByConnector,
+                                                   Map<String, Set<String>> componentToConnectors,
+                                                   Map<String, Integer> connectorOrder) {
         if (sctx.isEmpty() || tctx.isEmpty()) return List.of();
 
         Set<String> sNames = sctx.stream().map(Component::name).collect(Collectors.toSet());
         Set<String> tNames = tctx.stream().map(Component::name).collect(Collectors.toSet());
 
+        Set<String> sConnectors = sNames.stream()
+                .flatMap(n -> componentToConnectors.getOrDefault(n, Set.of()).stream())
+                .collect(Collectors.toSet());
+        List<String> candidates = tNames.stream()
+                .flatMap(n -> componentToConnectors.getOrDefault(n, Set.of()).stream())
+                .filter(sConnectors::contains)
+                .distinct()
+                .sorted(Comparator.comparingInt(connectorOrder::get))
+                .collect(Collectors.toList());
+
         List<ResolvedPath> paths = new ArrayList<>();
-        for (Connector conn : arch.connectors()) {
+        for (String connName : candidates) {
             List<Link> sLinks = new ArrayList<>();
             List<Link> tLinks = new ArrayList<>();
-            for (Link l : linksByConnector.getOrDefault(conn.name(), List.of())) {
+            for (Link l : linksByConnector.getOrDefault(connName, List.of())) {
                 String comp = componentOf(l.portRef());
                 if (sNames.contains(comp)) sLinks.add(l);
                 if (tNames.contains(comp)) tLinks.add(l);
             }
             // A real path needs at least one link from each side on this connector
             if (!sLinks.isEmpty() && !tLinks.isEmpty())
-                paths.add(new ResolvedPath(conn.name(), sLinks, tLinks));
+                paths.add(new ResolvedPath(connName, sLinks, tLinks));
         }
         return paths;
     }
@@ -133,6 +150,24 @@ public class ModelMerger {
             byConnector.computeIfAbsent(l.connectorName(), k -> new ArrayList<>()).add(l);
         }
         return byConnector;
+    }
+
+    /** Component name -> the set of connector names it has at least one link on. Built once per merge. */
+    private static Map<String, Set<String>> buildComponentToConnectors(Map<String, List<Link>> linksByConnector) {
+        Map<String, Set<String>> byComponent = new HashMap<>();
+        for (Map.Entry<String, List<Link>> e : linksByConnector.entrySet()) {
+            for (Link l : e.getValue()) {
+                byComponent.computeIfAbsent(componentOf(l.portRef()), k -> new HashSet<>()).add(e.getKey());
+            }
+        }
+        return byComponent;
+    }
+
+    /** Connector name -> its position in the architecture's declared connector order. */
+    private static Map<String, Integer> buildConnectorOrder(List<Connector> connectors) {
+        Map<String, Integer> order = new HashMap<>();
+        for (int i = 0; i < connectors.size(); i++) order.put(connectors.get(i).name(), i);
+        return order;
     }
 
     /** Component name part of a "Component.port" reference (or the whole string if no dot). */
