@@ -27,7 +27,8 @@ public class PropertyRegistry {
         r.register(new RuleFactory() {
             public String keyword() { return "Isolation"; }
             public SecurityRule create(List<Ref> args, Ref ret) {
-                return new Isolation(require(args, 0, "Isolation"), get(args, 1));
+                // Isolation(sctx, tctx [, via]) -- via is the optional approved-mediator context.
+                return new Isolation(require(args, 0, "Isolation"), get(args, 1), get(args, 2));
             }
         });
         r.register(new RuleFactory() {

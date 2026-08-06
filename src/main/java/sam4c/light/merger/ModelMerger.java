@@ -86,7 +86,8 @@ public class ModelMerger {
             case Integrity r       -> { sctx = resolveRef(r.sctx(), coverage, all, unresolved);
                                         tctx = resolveRef(r.tctx(), coverage, all, unresolved); }
             case Isolation r       -> { sctx = resolveRef(r.sctx(), coverage, all, unresolved);
-                                        tctx = resolveRef(r.tctx(), coverage, all, unresolved); }
+                                        tctx = resolveRef(r.tctx(), coverage, all, unresolved);
+                                        actx = resolveRef(r.via(), coverage, all, unresolved); }
             case Authentication r  -> { sctx = resolveRef(r.sctx(), coverage, all, unresolved);
                                         tctx = resolveRef(r.tctx(), coverage, all, unresolved);
                                         actx = resolveRef(r.actx(), coverage, all, unresolved); }
@@ -220,8 +221,8 @@ public class ModelMerger {
         List<Component> flat = new ArrayList<>();
         for (Component c : components) {
             flat.add(c);
-            if (!c.children().isEmpty())
-                flat.addAll(flattenComponents(c.children()));
+            if (!c.members().isEmpty())
+                flat.addAll(flattenComponents(c.members()));
         }
         return flat;
     }
