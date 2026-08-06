@@ -60,29 +60,6 @@ public class SemanticValidator {
                         + "-- predicate satisfied by nothing in the architecture");
         }
 
-        // Isolation says "no path allowed". By default "path" is single-hop (one shared
-        // connector, what merge already resolved into rr.paths()). When a rule names a
-        // via context (an approved mediator), the check switches to full multi-hop
-        // reachability over the component-adjacency graph: a path that must pass through
-        // a via component is the intended, legitimate route and is not a violation, but
-        // any path that reaches the target WITHOUT touching a via component is.
-        for (ResolvedRule rr : model.resolvedRules()) {
-            if (!(rr.rule() instanceof Isolation)) continue;
-            if (!rr.actxComponents().isEmpty()) {
-                Set<String> via = names(rr.actxComponents());
-                List<String> bypass = pathAvoiding(names(rr.sctxComponents()), names(rr.tctxComponents()),
-                        via, componentConnectors, connectorComponents);
-                if (bypass != null)
-                    warnings.add("Isolation violated: a multi-hop path exists (" + String.join(" -> ", bypass)
-                            + ") that bypasses the approved mediator '" + String.join(",", via) + "' "
-                            + "-- they are not isolated");
-            } else if (!rr.paths().isEmpty()) {
-                warnings.add("Isolation violated: a network path exists via connector '"
-                        + rr.paths().get(0).connector() + "' between the two sides "
-                        + "-- they are not isolated");
-            }
-        }
-
         // Authentication: a target is only guarded if the authenticating context actually
         // sits on the path from source to target -- as the target itself, or as a real
         // mediator between them -- not merely because the rule names it. If the source can
@@ -113,6 +90,45 @@ public class SemanticValidator {
             if (!externalConnectors.contains(l.connectorName())) continue;
             String ref = l.portRef();
             onExternal.add(ref.contains(".") ? ref.substring(0, ref.indexOf('.')) : ref);
+        }
+
+        // components already caught by the 3 secure-by-default checks below, as a set --
+        // used by Isolation to decide how far it can walk the graph without a via
+        Set<String> weak = new HashSet<>();
+        for (Component c : all) {
+            String exp = String.valueOf(c.properties().get("exposure"));
+            if (isDeployable(c) && "external".equalsIgnoreCase(exp) && !authenticated.contains(c.name()))
+                weak.add(c.name());
+            if (c.type().equals("Data") && ("external".equalsIgnoreCase(exp) || onExternal.contains(c.name())))
+                weak.add(c.name());
+            if (isDeployable(c) && !"external".equalsIgnoreCase(exp) && onExternal.contains(c.name()))
+                weak.add(c.name());
+        }
+
+        // isolation: direct hop, or via given -> bypass check, or else walk only through
+        // already-weak hops (clean hop blocks the walk, so no findings = no change)
+        for (ResolvedRule rr : model.resolvedRules()) {
+            if (!(rr.rule() instanceof Isolation)) continue;
+            if (!rr.actxComponents().isEmpty()) {
+                Set<String> via = names(rr.actxComponents());
+                List<String> bypass = pathAvoiding(names(rr.sctxComponents()), names(rr.tctxComponents()),
+                        via, componentConnectors, connectorComponents);
+                if (bypass != null)
+                    warnings.add("Isolation violated: a multi-hop path exists (" + String.join(" -> ", bypass)
+                            + ") that bypasses the approved mediator '" + String.join(",", via) + "' "
+                            + "-- they are not isolated");
+            } else if (!rr.paths().isEmpty()) {
+                warnings.add("Isolation violated: a network path exists via connector '"
+                        + rr.paths().get(0).connector() + "' between the two sides "
+                        + "-- they are not isolated");
+            } else {
+                List<String> chain = pathThroughWeak(names(rr.sctxComponents()), names(rr.tctxComponents()),
+                        weak, componentConnectors, connectorComponents);
+                if (chain != null)
+                    warnings.add("Isolation violated: a multi-hop path exists (" + String.join(" -> ", chain)
+                            + ") through components already flagged weak elsewhere "
+                            + "-- they are not isolated");
+            }
         }
 
         // missing authentication: an internet-exposed workload with nothing guarding it
@@ -272,6 +288,31 @@ public class SemanticValidator {
             for (String conn : componentConnectors.getOrDefault(cur, Set.of())) {
                 for (String nbr : connectorComponents.getOrDefault(conn, Set.of())) {
                     if (nbr.equals(cur) || avoid.contains(nbr) || visited.contains(nbr)) continue;
+                    visited.add(nbr);
+                    parent.put(nbr, cur);
+                    if (to.contains(nbr)) return buildPath(parent, nbr);
+                    queue.add(nbr);
+                }
+            }
+        }
+        return null;
+    }
+
+    // like pathAvoiding but inverted: can only expand past a node if it's in weak
+    // (source nodes always get their first hop free). clean node = walk stops there.
+    private static List<String> pathThroughWeak(Set<String> from, Set<String> to, Set<String> weak,
+                                                 Map<String, Set<String>> componentConnectors,
+                                                 Map<String, Set<String>> connectorComponents) {
+        Deque<String> queue = new ArrayDeque<>();
+        Map<String, String> parent = new HashMap<>();
+        Set<String> visited = new HashSet<>(from);
+        queue.addAll(from);
+        while (!queue.isEmpty()) {
+            String cur = queue.poll();
+            if (!from.contains(cur) && !weak.contains(cur)) continue;   // clean hop, don't expand past it
+            for (String conn : componentConnectors.getOrDefault(cur, Set.of())) {
+                for (String nbr : connectorComponents.getOrDefault(conn, Set.of())) {
+                    if (nbr.equals(cur) || visited.contains(nbr)) continue;
                     visited.add(nbr);
                     parent.put(nbr, cur);
                     if (to.contains(nbr)) return buildPath(parent, nbr);
