@@ -5,84 +5,78 @@ components:
     type: VM
     attributes:
       Domain: frontend
-    children:
-      - name: Nginx
-        type: App
-        attributes:
-          Domain: frontend
-        runtime: container
-        exposure: external
-        ports:
-          - { name: http_in, number: 80, protocol: http }
-          - { name: api_out, number: 8080, protocol: http }
+
+  - name: Nginx
+    type: App
+    attributes:
+      Domain: frontend
+    exposure: external
+    deployedOn: FrontendVM
+    implementation: nginx-build
+    ports:
+      - { name: http_in, number: 80, protocol: http }
+      - { name: api_out, number: 8080, protocol: http }
 
   - name: BackendVM
     type: VM
     attributes:
       Domain: backend
-    children:
-      # SpringAPI + a logging sidecar are co-located (share the pod's network)
-      - name: api-pod
-        type: Colocation
-        shareNetwork: true
-        shareStorage: false
-        scale:                 # the pod scales as a unit (R-F5)
-          replicas: 3
-          min: 2
-          max: 10
-          metric: cpu
-        spread: zone           # the 3 copies fan out across zones (satisfies Availability=high)
-        children:
-          - name: SpringAPI
-            type: App
-            attributes:
-              Domain: backend
-            runtime: container
-            exposure: internal
-            image: registry/clinic-api:1.4.2
-            resources:
-              cpu: "500m"
-              memory: "512Mi"
-            ports: [api_in, db_out, admin_in]
-          - name: LogSidecar
-            type: App
-            attributes:
-              Role: logging          # co-located in the pod, but NOT part of the backend trust zone
-            runtime: container
-            ports: [log_in]
+
+  # SpringAPI + a logging sidecar are co-located (share the pod's network)
+  - name: api-pod
+    type: Colocation
+    scale:                 # the pod scales as a unit (R-F5)
+      replicas: 3
+      min: 2
+      max: 10
+      metric: cpu
+    spread: zone           # the 3 copies fan out across zones (satisfies Availability=high)
+    members:
+      - name: SpringAPI
+        type: App
+        attributes:
+          Domain: backend
+        exposure: internal
+        deployedOn: BackendVM
+        implementation: clinic-api-build
+        ports: [api_in, db_out, admin_in]
+      - name: LogSidecar
+        type: App
+        attributes:
+          Role: logging          # co-located in the pod, but NOT part of the backend trust zone
+        deployedOn: BackendVM
+        implementation: log-sidecar-build
+        ports: [log_in]
 
   - name: DatabaseVM
     type: VM
     attributes:
       Domain: database
-    children:
-      - name: PatientDB
-        type: Data
-        attributes:
-          Domain: database
-          DataClass: clinical
-        runtime: container
-        image: postgres:16
-        persistent: true
-        storage:
-          size: 20Gi
-          class: ssd
-        config:
-          POSTGRES_DB: clinic
-        secrets: [DB_PASSWORD]
-        ports: [db_in]
+
+  - name: PatientDB
+    type: Data
+    attributes:
+      Domain: database
+      DataClass: clinical
+    persistent: true
+    storage: 20Gi
+    credentials: [DB_PASSWORD]
+    deployedOn: DatabaseVM
+    implementation: postgres-build
+    ports: [db_in]
 
   - name: AdminVM
     type: VM
     attributes:
       Domain: admin
-    children:
-      - name: AdminDashboard
-        type: App
-        attributes:
-          Domain: admin
-          Role: administrator
-        ports: [mgmt_out]
+
+  - name: AdminDashboard
+    type: App
+    attributes:
+      Domain: admin
+      Role: administrator
+    deployedOn: AdminVM
+    ports: [mgmt_out]
 
 connectors:
   - name: FE_to_BE
@@ -124,3 +118,20 @@ links:
   - port: SpringAPI.admin_in
     connector: Admin_to_BE
     direction: in
+
+implementations:
+  - name: nginx-build
+    runtime: container
+  - name: clinic-api-build
+    runtime: container
+    image: registry/clinic-api:1.4.2
+    resources:
+      cpu: "500m"
+      memory: "512Mi"
+  - name: log-sidecar-build
+    runtime: container
+  - name: postgres-build
+    runtime: container
+    image: postgres:16
+    config:
+      POSTGRES_DB: clinic

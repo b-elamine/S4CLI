@@ -230,15 +230,15 @@ document.querySelectorAll('.filter-btn').forEach(btn => btn.addEventListener('cl
 
 
 initGraph({ nodes: [{ "data": { "id":"n0", "label":"FrontendVM", "type":"VM", "attrs":"{Domain=frontend}", "ports":"", "bg":"#e8eaf6", "shape":"roundrectangle" } },
-{ "data": { "id":"n1", "label":"Nginx", "type":"App", "attrs":"{Domain=frontend}", "ports":"http_in, api_out", "bg":"#1565c0", "shape":"ellipse", "parent":"n0" } },
+{ "data": { "id":"n1", "label":"Nginx", "type":"App", "attrs":"{Domain=frontend}", "ports":"http_in, api_out", "bg":"#1565c0", "shape":"ellipse" } },
 { "data": { "id":"n2", "label":"BackendVM", "type":"VM", "attrs":"{Domain=backend}", "ports":"", "bg":"#e8eaf6", "shape":"roundrectangle" } },
-{ "data": { "id":"n3", "label":"api-pod  x3 - zone", "type":"Colocation", "attrs":"{}", "ports":"", "bg":"#fef9c3", "shape":"roundrectangle", "parent":"n2" } },
+{ "data": { "id":"n3", "label":"api-pod  x3 - zone", "type":"Colocation", "attrs":"{}", "ports":"", "bg":"#fef9c3", "shape":"roundrectangle" } },
 { "data": { "id":"n4", "label":"SpringAPI", "type":"App", "attrs":"{Domain=backend}", "ports":"api_in, db_out, admin_in", "bg":"#1565c0", "shape":"ellipse", "parent":"n3" } },
 { "data": { "id":"n5", "label":"LogSidecar", "type":"App", "attrs":"{Role=logging}", "ports":"log_in", "bg":"#1565c0", "shape":"ellipse", "parent":"n3" } },
 { "data": { "id":"n6", "label":"DatabaseVM", "type":"VM", "attrs":"{Domain=database}", "ports":"", "bg":"#e8eaf6", "shape":"roundrectangle" } },
-{ "data": { "id":"n7", "label":"PatientDB", "type":"Data", "attrs":"{Domain=database, DataClass=clinical}", "ports":"db_in", "bg":"#e65100", "shape":"barrel", "parent":"n6" } },
+{ "data": { "id":"n7", "label":"PatientDB", "type":"Data", "attrs":"{Domain=database, DataClass=clinical}", "ports":"db_in", "bg":"#e65100", "shape":"barrel" } },
 { "data": { "id":"n8", "label":"AdminVM", "type":"VM", "attrs":"{Domain=admin}", "ports":"", "bg":"#e8eaf6", "shape":"roundrectangle" } },
-{ "data": { "id":"n9", "label":"AdminDashboard", "type":"App", "attrs":"{Domain=admin, Role=administrator}", "ports":"mgmt_out", "bg":"#1565c0", "shape":"ellipse", "parent":"n8" } },
+{ "data": { "id":"n9", "label":"AdminDashboard", "type":"App", "attrs":"{Domain=admin, Role=administrator}", "ports":"mgmt_out", "bg":"#1565c0", "shape":"ellipse" } },
 { "data": { "id":"conn_FE_to_BE", "label":"FE_to_BE", "type":"Connector", "attrs":"", "ports":"", "bg":"#78909c", "shape":"diamond" } },
 { "data": { "id":"conn_BE_to_DB", "label":"BE_to_DB", "type":"Connector", "attrs":"", "ports":"", "bg":"#78909c", "shape":"diamond" } },
 { "data": { "id":"conn_Admin_to_BE", "label":"Admin_to_BE", "type":"Connector", "attrs":"", "ports":"", "bg":"#78909c", "shape":"diamond" } },
@@ -249,13 +249,18 @@ initGraph({ nodes: [{ "data": { "id":"n0", "label":"FrontendVM", "type":"VM", "a
 { "data": { "id":"arch4", "source":"conn_BE_to_DB", "target":"n7", "label":"db_in", "color":"#455a64", "style":"solid", "layer":"arch", "dir":"in" } },
 { "data": { "id":"arch5", "source":"n9", "target":"conn_Admin_to_BE", "label":"mgmt_out", "color":"#455a64", "style":"solid", "layer":"arch", "dir":"out" } },
 { "data": { "id":"arch6", "source":"conn_Admin_to_BE", "target":"n4", "label":"admin_in", "color":"#455a64", "style":"solid", "layer":"arch", "dir":"in" } },
+{ "data": { "id":"place0", "source":"n4", "target":"n2", "label":"deployedOn", "color":"#999999", "style":"dashed", "layer":"arch", "dir":"out" } },
+{ "data": { "id":"place1", "source":"n7", "target":"n6", "label":"deployedOn", "color":"#999999", "style":"dashed", "layer":"arch", "dir":"out" } },
+{ "data": { "id":"place2", "source":"n1", "target":"n0", "label":"deployedOn", "color":"#999999", "style":"dashed", "layer":"arch", "dir":"out" } },
+{ "data": { "id":"place3", "source":"n9", "target":"n8", "label":"deployedOn", "color":"#999999", "style":"dashed", "layer":"arch", "dir":"out" } },
+{ "data": { "id":"place4", "source":"n5", "target":"n2", "label":"deployedOn", "color":"#999999", "style":"dashed", "layer":"arch", "dir":"out" } },
 { "data": { "id":"e0", "source":"n7", "target":"n4", "label":"Confidentiality", "color":"#1565c0", "style":"solid", "layer":"rule", "sctxAll":"DatabaseVM, PatientDB", "tctxAll":"BackendVM, SpringAPI", "actxAll":"" } },
 { "data": { "id":"e1", "source":"n4", "target":"n7", "label":"Integrity", "color":"#2e7d32", "style":"solid", "layer":"rule", "sctxAll":"BackendVM, SpringAPI", "tctxAll":"DatabaseVM, PatientDB", "actxAll":"" } },
 { "data": { "id":"e2", "source":"n9", "target":"n4", "label":"Authentication", "color":"#6a1b9a", "style":"solid", "layer":"rule", "sctxAll":"AdminDashboard", "tctxAll":"BackendVM, SpringAPI", "actxAll":"AdminVM, AdminDashboard" } },
 { "data": { "id":"e3", "source":"n7", "target":"n1", "label":"Isolation", "color":"#c62828", "style":"dashed", "layer":"rule", "sctxAll":"DatabaseVM, PatientDB", "tctxAll":"FrontendVM, Nginx", "actxAll":"" } },
 { "data": { "id":"e4", "source":"n9", "target":"n1", "label":"Isolation", "color":"#c62828", "style":"dashed", "layer":"rule", "sctxAll":"AdminVM, AdminDashboard", "tctxAll":"FrontendVM, Nginx", "actxAll":"" } },
 { "data": { "id":"e5", "source":"n7", "target":"n4", "label":"Confidentiality", "color":"#1565c0", "style":"solid", "layer":"rule", "sctxAll":"PatientDB", "tctxAll":"BackendVM, SpringAPI", "actxAll":"" } },
-{ "data": { "id":"e6", "source":"n9", "target":"n7", "label":"Authorization", "color":"#0891b2", "style":"solid", "layer":"rule", "sctxAll":"AdminDashboard", "tctxAll":"DatabaseVM, PatientDB", "actxAll":"" } }] }, {"frontendCtx": ["FrontendVM", "Nginx"], "backendCtx": ["BackendVM", "SpringAPI"], "dbCtx": ["DatabaseVM", "PatientDB"], "adminCtx": ["AdminVM", "AdminDashboard"], "adminRoleCtx": ["AdminDashboard"], "clinicalDataCtx": ["PatientDB"], "piiCtx": []}, ['Confidentiality: sctx resolves to no components -- unused rule, or a missing/mistyped tag', 'context \'piiCtx\' matches no components -- predicate satisfied by nothing in the architecture']);
+{ "data": { "id":"e6", "source":"n9", "target":"n7", "label":"Authorization", "color":"#0891b2", "style":"solid", "layer":"rule", "sctxAll":"AdminDashboard", "tctxAll":"DatabaseVM, PatientDB", "actxAll":"" } }] }, {"frontendCtx": ["FrontendVM", "Nginx"], "backendCtx": ["BackendVM", "SpringAPI"], "dbCtx": ["DatabaseVM", "PatientDB"], "adminCtx": ["AdminVM", "AdminDashboard"], "adminRoleCtx": ["AdminDashboard"], "clinicalDataCtx": ["PatientDB"], "piiCtx": []}, ['Confidentiality: sctx resolves to no components -- unused rule, or a missing/mistyped tag', 'context \'piiCtx\' matches no components -- predicate satisfied by nothing in the architecture', '\'Nginx\' is exposed (exposure: external) but no Authentication rule guards it -- unauthenticated entry point', 'Authorization grants access to \'DatabaseVM\' but no Authentication rule guards it -- access without authentication', 'Authorization grants access to \'PatientDB\' but no Authentication rule guards it -- access without authentication']);
 </script>
 </body>
 </html>

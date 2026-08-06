@@ -34,6 +34,13 @@ public class ConformanceChecker {
             checkEnum(errors, "Connector '" + c.name() + "'", "Connector", "protocol", c.protocol());
         }
 
+        // M2: Architecture -> implementations [0..*] containment
+        for (Implementation impl : arch.implementations()) {
+            if (blank(impl.name()))
+                errors.add("Implementation: name is required (M2: Implementation.name [1..1])");
+            checkEnum(errors, "Implementation '" + impl.name() + "'", "Implementation", "runtime", impl.runtime());
+        }
+
         // Referential integrity: collect every component name and its ports so we
         // can verify links point at things that actually exist. A dangling link
         // (typo'd port or connector) would otherwise survive to generation and
@@ -65,12 +72,10 @@ public class ConformanceChecker {
                         + "' is not a declared connector");
         }
 
-        // Workload.deployedOn must reference an existing Host-typed component
-        java.util.Map<String, String> componentTypes = new java.util.HashMap<>();
-        collectTypes(arch.components(), componentTypes);
-        java.util.Set<String> hostNames = new java.util.HashSet<>();
-        componentTypes.forEach((n, t) -> { if (metamodel.isA(t, "Host")) hostNames.add(n); });
-        checkDeployedOn(arch.components(), hostNames, errors);
+        // Referential integrity for every non-containment reference a type declares
+        // (deployedOn -> Host, implementation -> Implementation, ...): derived from
+        // allReferences(type), not one hand-written check per reference.
+        checkReferences(arch.components(), namesByType(arch), errors);
 
         return errors;
     }
@@ -82,27 +87,47 @@ public class ConformanceChecker {
             java.util.Set<String> ports = new java.util.HashSet<>();
             for (Port p : c.ports()) ports.add(p.name());
             out.put(c.name(), ports);
-            if (!c.children().isEmpty()) collectPorts(c.children(), out);
+            if (!c.members().isEmpty()) collectPorts(c.members(), out);
         }
     }
 
-    /** Recursively collect each component's name -> type. */
-    private void collectTypes(List<Component> components, java.util.Map<String, String> out) {
-        for (Component c : components) {
-            out.put(c.name(), c.type());
-            if (!c.children().isEmpty()) collectTypes(c.children(), out);
+    /** Every named, typed thing in the architecture, indexed under its own type AND
+     *  every supertype it satisfies -- so a reference declared to target "Host" finds
+     *  a component whose concrete type is "VM", "PM", or "Worker". */
+    private java.util.Map<String, java.util.Set<String>> namesByType(Architecture arch) {
+        java.util.Map<String, java.util.Set<String>> byType = new java.util.HashMap<>();
+        List<Component> all = new ArrayList<>();
+        collectAll(arch.components(), all);
+        for (Component c : all) {
+            byType.computeIfAbsent(c.type(), t -> new java.util.HashSet<>()).add(c.name());
+            for (String superType : metamodel.allSuperTypes(c.type()))
+                byType.computeIfAbsent(superType, t -> new java.util.HashSet<>()).add(c.name());
         }
+        for (Implementation impl : arch.implementations())
+            byType.computeIfAbsent("Implementation", t -> new java.util.HashSet<>()).add(impl.name());
+        return byType;
     }
 
-    /** Recursively verify `deployedOn` (in the properties map) points at a Host. */
-    private void checkDeployedOn(List<Component> components,
-                                 java.util.Set<String> hostNames, List<String> errors) {
+    private void collectAll(List<Component> components, List<Component> out) {
+        for (Component c : components) { out.add(c); collectAll(c.members(), out); }
+    }
+
+    /** Recursively verify every non-containment reference the component's type declares
+     *  resolves to a name of the right target type. */
+    private void checkReferences(List<Component> components,
+                                 java.util.Map<String, java.util.Set<String>> namesByType, List<String> errors) {
         for (Component c : components) {
-            Object target = c.properties().get("deployedOn");
-            if (target != null && !hostNames.contains(target.toString()))
-                errors.add("Component(" + c.name() + "): deployedOn '" + target
-                        + "' is not a Host (M2: Workload.deployedOn -> Host)");
-            if (!c.children().isEmpty()) checkDeployedOn(c.children(), hostNames, errors);
+            for (MReference r : metamodel.allReferences(c.type())) {
+                if (r.containment()) continue;
+                Object target = c.properties().get(r.name());
+                if (target == null) continue;
+                java.util.Set<String> valid = namesByType.getOrDefault(r.targetClass(), java.util.Set.of());
+                if (!valid.contains(target.toString()))
+                    errors.add("Component(" + c.name() + "): " + r.name() + " '" + target
+                            + "' does not resolve to a declared " + r.targetClass()
+                            + " (M2: " + c.type() + "." + r.name() + " -> " + r.targetClass() + ")");
+            }
+            if (!c.members().isEmpty()) checkReferences(c.members(), namesByType, errors);
         }
     }
 
@@ -156,24 +181,19 @@ public class ConformanceChecker {
                         + " out of range (1..65535)");
         }
 
-        // M2: Workload features (carried in the properties map) -- enum value sets are
+        // M2: Deployable features (carried in the properties map) -- enum value sets are
         // read from the metamodel's `allowed` declarations (single source of truth).
         Object exposure = c.properties().get("exposure");
-        checkEnum(errors, ctx, c.type(), "runtime",   c.properties().get("runtime"));
         checkEnum(errors, ctx, c.type(), "exposure",  exposure);
         checkEnum(errors, ctx, c.type(), "lifecycle", c.properties().get("lifecycle"));
         checkEnum(errors, ctx, c.type(), "spread",    c.properties().get("spread"));
-        Object trigger = c.properties().get("trigger");
-        if (trigger instanceof java.util.Map<?, ?> tm && tm.get("kind") != null
-                && !java.util.Set.of("http", "event", "schedule").contains(tm.get("kind").toString().toLowerCase()))
-            errors.add(ctx + ": trigger.kind '" + tm.get("kind") + "' invalid (∈ http|event|schedule)");
 
         // Well-formedness invariants (C4)
-        // (6) an exposed workload must have at least one port
+        // (6) an exposed deployable must have at least one port
         if (exposure != null && !exposure.toString().equalsIgnoreCase("none") && c.ports().isEmpty())
-            errors.add(ctx + ": exposure '" + exposure + "' but the workload has no ports");
-        // (7) a persistent Data workload must declare storage
-        if (Boolean.TRUE.equals(c.properties().get("persistent")) && !(c.properties().get("storage") instanceof java.util.Map))
+            errors.add(ctx + ": exposure '" + exposure + "' but the deployable has no ports");
+        // (7) a persistent Data deployable must declare storage
+        if (Boolean.TRUE.equals(c.properties().get("persistent")) && c.properties().get("storage") == null)
             errors.add(ctx + ": persistent=true but no storage declared");
         // (8) scale: min <= replicas <= max
         if (c.properties().get("scale") instanceof java.util.Map<?, ?> sc) {
@@ -192,26 +212,20 @@ public class ConformanceChecker {
             errors.add(ctx + ": unknown type '" + c.type()
                     + "'. Must conform to M2 Component hierarchy.");
 
-        // Well-formedness: Group containment rules
-        for (Component child : c.children()) {
-            if (c.type().equals("Colocation") && !metamodel.isA(child.type(), "Workload"))
-                errors.add(ctx + ": Colocation may contain only Workloads, not '"
-                        + child.name() + "' (" + child.type() + ")");
+        // Well-formedness: Colocation containment rules
+        for (Component member : c.members()) {
+            if (c.type().equals("Colocation") && !metamodel.isA(member.type(), "Deployable"))
+                errors.add(ctx + ": Colocation may contain only Deployables, not '"
+                        + member.name() + "' (" + member.type() + ")");
             // (9) the deployable unit is the group: a member must not carry its own scale
-            if (c.type().equals("Colocation") && child.properties().get("scale") != null)
-                errors.add(ctx + ": member '" + child.name() + "' has its own scale; "
+            if (c.type().equals("Colocation") && member.properties().get("scale") != null)
+                errors.add(ctx + ": member '" + member.name() + "' has its own scale; "
                         + "scale belongs to the Colocation");
-            if (c.type().equals("HostPool") && !metamodel.isA(child.type(), "Host"))
-                errors.add(ctx + ": HostPool may contain only Hosts, not '"
-                        + child.name() + "' (" + child.type() + ")");
-            if (c.type().equals("Zone") && metamodel.isA(child.type(), "Host"))
-                errors.add(ctx + ": Zone may not directly contain a Host ('"
-                        + child.name() + "')");
         }
 
-        // M2: Component -> children [0..*] containment -- recurse
-        for (Component child : c.children())
-            errors.addAll(checkComponent(child, ctx + ".children"));
+        // M2: Component -> members [0..*] containment -- recurse
+        for (Component member : c.members())
+            errors.addAll(checkComponent(member, ctx + ".members"));
 
         return errors;
     }

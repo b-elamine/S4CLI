@@ -3,6 +3,7 @@ package sam4c.light.output;
 import sam4c.light.model.Architecture;
 import sam4c.light.model.Component;
 import sam4c.light.model.Connector;
+import sam4c.light.model.Implementation;
 import sam4c.light.model.Link;
 import sam4c.light.model.Port;
 
@@ -39,6 +40,25 @@ public final class ArchYamlWriter {
             if (l.direction() != sam4c.light.model.Direction.INOUT)
                 sb.append("    direction: ").append(l.direction().token()).append("\n");
         }
+        sb.append("\n");
+
+        sb.append("implementations:\n");
+        if (arch.implementations().isEmpty()) sb.append("  []\n");
+        for (Implementation impl : arch.implementations()) {
+            sb.append("  - name: ").append(impl.name()).append("\n");
+            if (impl.runtime() != null)  sb.append("    runtime: ").append(impl.runtime()).append("\n");
+            if (impl.image() != null)    sb.append("    image: ").append(impl.image()).append("\n");
+            if (impl.resources() != null && !impl.resources().isEmpty()) {
+                sb.append("    resources:\n");
+                for (Map.Entry<String, Object> e : impl.resources().entrySet())
+                    sb.append("      ").append(e.getKey()).append(": ").append(e.getValue()).append("\n");
+            }
+            if (impl.config() != null && !impl.config().isEmpty()) {
+                sb.append("    config:\n");
+                for (Map.Entry<String, Object> e : impl.config().entrySet())
+                    sb.append("      ").append(e.getKey()).append(": ").append(e.getValue()).append("\n");
+            }
+        }
 
         return sb.toString();
     }
@@ -47,7 +67,6 @@ public final class ArchYamlWriter {
         String pad = "  ".repeat(depth);
         sb.append(pad).append("- name: ").append(c.name()).append("\n");
         sb.append(pad).append("  type: ").append(c.type()).append("\n");
-        if (c.external()) sb.append(pad).append("  external: true\n");
 
         if (!c.attributes().isEmpty()) {
             sb.append(pad).append("  attributes:\n");
@@ -76,9 +95,10 @@ public final class ArchYamlWriter {
         // walk the type's metamodel attributes so any declared field gets written,
         // no hand-maintained list to keep in sync
         writeScalar(sb, pad, "deployedOn", c.properties().get("deployedOn"));   // a reference, not an attribute
+        writeScalar(sb, pad, "implementation", c.properties().get("implementation"));   // a reference, not an attribute
         for (sam4c.light.metamodel.MAttribute a : sam4c.light.metamodel.Sam4cMetamodel.INSTANCE.allAttributes(c.type())) {
             String key = a.name();
-            if (key.equals("type") || key.equals("name") || key.equals("external")) continue;  // handled above
+            if (key.equals("type") || key.equals("name")) continue;  // handled above
             Object v = c.properties().get(key);
             if (v == null) continue;
             switch (a.type()) {
@@ -88,9 +108,9 @@ public final class ArchYamlWriter {
             }
         }
 
-        if (!c.children().isEmpty()) {
-            sb.append(pad).append("  children:\n");
-            for (Component child : c.children()) writeComponent(sb, child, depth + 2);
+        if (!c.members().isEmpty()) {
+            sb.append(pad).append("  members:\n");
+            for (Component member : c.members()) writeComponent(sb, member, depth + 2);
         }
     }
 

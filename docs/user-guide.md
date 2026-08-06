@@ -961,37 +961,32 @@ case NonRepudiation r -> {
 
 ### Adding a new component type
 
-**Step 1.** Register a handler in `Main.java` inside the `call()` method:
+The loader is fully metamodel-driven -- there is no Java handler to write. Declare the
+type in `ArchMetamodel.java` and it becomes loadable, writable, and editable in the
+Studio automatically.
+
+**Step 1.** Add the class in `ArchMetamodel.java`, e.g. a new kind of Deployable:
 
 ```java
-compReg.register(new ComponentTypeHandler() {
-    public String typeName() { return "Container"; }
-    public Component load(String name, Map<String, Object> yaml, ComponentRegistry reg) {
-        String image = (String) yaml.getOrDefault("image", "");
-        int replicas = (int) yaml.getOrDefault("replicas", 1);
-        return new Component(
-                name, "Container",
-                ComponentRegistry.loadPorts(yaml),
-                List.of(),
-                ComponentRegistry.bool(yaml, "external"),
-                ComponentRegistry.loadAttributes(yaml),
-                Map.of("image", image, "replicas", replicas)
-        );
-    }
-});
+MClass.builder("Function").superType("Deployable")
+    .attr("trigger", STRING, 0, 1)
+    .build(),
 ```
 
 **Step 2.** Use it in any `.arch.yaml` file:
 
 ```yaml
-- name: ApiPod
-  type: Container
-  image: my-registry/api:latest
-  replicas: 3
-  ports: [http_in, grpc_out]
+- name: ThumbnailJob
+  type: Function
+  trigger: s3-upload
+  ports: [http_in]
 ```
 
-The `image` and `replicas` fields end up in `Component.properties` and are available in the JSON output for a future generator to consume.
+`trigger` (declared on the new type) and every field `Function` inherits from
+`Deployable` (`exposure`, `deployedOn`, `implementation`, ...) are read into
+`Component.properties` automatically -- `ComponentRegistry.load()` derives what to
+read from `allAttributes`/`allReferences`, it never hardcodes a field list per type.
+The Studio palette, editor form, and YAML writer pick up the new type the same way.
 
 ---
 

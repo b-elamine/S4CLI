@@ -27,7 +27,7 @@ public final class GraphBuilder {
         List<String> nodes = new ArrayList<>();
         List<String> edges = new ArrayList<>();
 
-        // Components (VMs as compound parents around their children)
+        // Components (Colocation as a compound parent around its members)
         registerComponents(model.architecture().components(), null, nodeIds, nodes);
 
         Map<String, String> compNameToNodeId = new LinkedHashMap<>();
@@ -72,6 +72,22 @@ public final class GraphBuilder {
                 "{ \"data\": { \"id\":\"arch%d\", \"source\":\"%s\", \"target\":\"%s\", " +
                 "\"label\":\"%s\", \"color\":\"#455a64\", \"style\":\"solid\", \"layer\":\"arch\", \"dir\":\"%s\" } }",
                 archSeq++, source, target, escape(port), dir
+            ));
+        }
+
+        // deployedOn: a Deployable's placement on a Host is a reference, not containment,
+        // so it draws no nesting -- without this edge it would be invisible in the graph.
+        // Dashed/grey, matching the same convention the paper figure uses for this relation.
+        int placeSeq = 0;
+        for (Component c : nodeIds.keySet()) {
+            Object target = c.properties().get("deployedOn");
+            if (target == null) continue;
+            String hostNodeId = compNameToNodeId.get(target.toString());
+            if (hostNodeId == null) continue;
+            edges.add(String.format(
+                "{ \"data\": { \"id\":\"place%d\", \"source\":\"%s\", \"target\":\"%s\", " +
+                "\"label\":\"deployedOn\", \"color\":\"#999999\", \"style\":\"dashed\", \"layer\":\"arch\", \"dir\":\"out\" } }",
+                placeSeq++, nodeIds.get(c), hostNodeId
             ));
         }
 
@@ -141,8 +157,8 @@ public final class GraphBuilder {
                 attrsStr, portsStr, nodeColor(c.type()), nodeShape(c.type()), parent
             ));
 
-            if (!c.children().isEmpty())
-                registerComponents(c.children(), id, nodeIds, nodes);
+            if (!c.members().isEmpty())
+                registerComponents(c.members(), id, nodeIds, nodes);
         }
     }
 
@@ -160,21 +176,19 @@ public final class GraphBuilder {
         return badge;
     }
 
-    // Hosts and groups are containers (workloads/components are their children). Security
-    // edges connect leaf workloads, so containers are skipped as edge endpoints.
+    // Hosts are never rule endpoints, and Colocation is a compound parent, not a leaf.
+    // Security edges connect leaf Deployables, so both are skipped as edge endpoints.
     private static final java.util.Set<String> CONTAINER_TYPES = java.util.Set.of(
-        "VM", "PM", "Worker", "Zone", "Colocation", "HostPool");
+        "VM", "PM", "Worker", "Colocation");
 
     private static boolean isContainer(Component c) {
-        return !c.children().isEmpty() || CONTAINER_TYPES.contains(c.type());
+        return !c.members().isEmpty() || CONTAINER_TYPES.contains(c.type());
     }
 
     private static String nodeColor(String type) {
         return switch (type) {
             case "VM", "PM", "Worker" -> "#e8eaf6";  // hosts: lavender
-            case "Zone"           -> "#f1f5f9";                        // boundary: slate-50
             case "Colocation" -> "#fef9c3";                       // co-location: amber-50
-            case "HostPool"       -> "#eef2ff";                        // host pool: indigo-50
             case "App"  -> "#1565c0";
             case "Data" -> "#e65100";
             default     -> "#37474f";
@@ -185,9 +199,8 @@ public final class GraphBuilder {
         return switch (type) {
             case "App"  -> "ellipse";
             case "Data" -> "barrel";
-            // hosts + groups are rounded rectangles (compound containers)
-            case "VM", "PM", "Worker", "Zone", "Colocation", "HostPool"
-                        -> "roundrectangle";
+            // hosts + Colocation are rounded rectangles (compound containers)
+            case "VM", "PM", "Worker", "Colocation" -> "roundrectangle";
             default     -> "diamond";
         };
     }

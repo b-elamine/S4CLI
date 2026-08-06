@@ -121,9 +121,9 @@ public class ModelInspector {
                 System.out.printf("        %-22s  ports=%s%n", "",
                         c.ports().stream().map(Port::name).toList());
             }
-            if (!c.children().isEmpty()) {
-                System.out.printf("        %-22s  children=%s%n", "",
-                        c.children().stream().map(Component::name).toList());
+            if (!c.members().isEmpty()) {
+                System.out.printf("        %-22s  members=%s%n", "",
+                        c.members().stream().map(Component::name).toList());
             }
         }
     }
@@ -134,8 +134,8 @@ public class ModelInspector {
         if (!c.ports().isEmpty())
             System.out.printf("%s  ports: %s%n", indent,
                     c.ports().stream().map(Port::name).toList());
-        for (Component child : c.children())
-            printComponent(child, indent + "    ");
+        for (Component member : c.members())
+            printComponent(member, indent + "    ");
     }
 
     private static void sep() {

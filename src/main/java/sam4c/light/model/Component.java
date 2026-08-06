@@ -7,8 +7,7 @@ public record Component(
         String name,
         String type,
         List<Port> ports,
-        List<Component> children,
-        boolean external,
+        List<Component> members,
         Map<String, String> attributes,
         Map<String, Object> properties
 ) {}

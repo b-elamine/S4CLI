@@ -5,6 +5,7 @@ import sam4c.light.model.Architecture;
 import sam4c.light.model.Component;
 import sam4c.light.model.Connector;
 import sam4c.light.model.Direction;
+import sam4c.light.model.Implementation;
 import sam4c.light.model.Link;
 import sam4c.light.registry.ComponentRegistry;
 
@@ -85,6 +86,24 @@ public class ArchLoader {
             }
         }
 
-        return new Architecture(name, components, connectors, links);
+        List<Implementation> implementations = new ArrayList<>();
+        Object rawImplementations = root.get("implementations");
+        if (rawImplementations instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> yaml) {
+                    Map<String, Object> m = (Map<String, Object>) yaml;
+                    String iname = (String) m.get("name");
+                    String runtime = m.get("runtime") != null ? m.get("runtime").toString() : null;
+                    String image = m.get("image") != null ? m.get("image").toString() : null;
+                    Map<String, Object> resources = m.get("resources") instanceof Map<?, ?> r
+                            ? (Map<String, Object>) r : Map.of();
+                    Map<String, Object> config = m.get("config") instanceof Map<?, ?> c
+                            ? (Map<String, Object>) c : Map.of();
+                    implementations.add(new Implementation(iname, runtime, image, resources, config));
+                }
+            }
+        }
+
+        return new Architecture(name, components, connectors, links, implementations);
     }
 }

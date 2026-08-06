@@ -28,8 +28,9 @@ public final class Palette {
             String type = cls.name();
 
             if (mm.isA(type, "Component")) {
-                // Hosts and Groups are containers (they hold child components)
-                boolean container = mm.isA(type, "Host") || mm.isA(type, "Group");
+                // Colocation is the only container left (it holds member Deployables);
+                // a Deployable's placement on a Host is a reference, not containment.
+                boolean container = mm.isA(type, "Colocation");
                 String req = AttributePolicy.requiredFor(type).stream()
                     .map(a -> "\"" + a + "\"").collect(Collectors.joining(", "));
                 items.add(String.format(

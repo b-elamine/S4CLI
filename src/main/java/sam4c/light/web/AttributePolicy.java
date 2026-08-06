@@ -52,7 +52,7 @@ public final class AttributePolicy {
                 if (v == null || v.isBlank())
                     problems.add(c.name() + " (" + c.type() + "): missing required attribute '" + key + "'");
             }
-            if (!c.children().isEmpty()) check(c.children(), problems);
+            if (!c.members().isEmpty()) check(c.members(), problems);
         }
     }
 }

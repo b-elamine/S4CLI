@@ -1,81 +1,59 @@
 package sam4c.light.registry;
 
+import sam4c.light.metamodel.MAttribute;
+import sam4c.light.metamodel.MReference;
+import sam4c.light.metamodel.Sam4cMetamodel;
 import sam4c.light.model.Component;
 import sam4c.light.model.Port;
 
 import java.util.*;
 
+// Turns a raw YAML component block into a Component. Fully metamodel-driven: which
+// fields a type reads comes from ArchMetamodel.java (allAttributes/allReferences),
+// not a hardcoded list here. Add a field to the metamodel and this loader picks it
+// up with no other change -- add a whole new concrete type the same way, no Java
+// handler class needed.
 public class ComponentRegistry {
 
-    private final Map<String, ComponentTypeHandler> handlers = new LinkedHashMap<>();
-
-    @SuppressWarnings("unchecked")
     public static ComponentRegistry withDefaults() {
-        ComponentRegistry r = new ComponentRegistry();
-
-        r.register(new ComponentTypeHandler() {
-            public String typeName() { return "App"; }
-            public Component load(String name, Map<String, Object> yaml, ComponentRegistry reg) {
-                return new Component(name, "App", loadPorts(yaml), List.of(),
-                        bool(yaml, "external"), loadAttributes(yaml), loadProperties(yaml));
-            }
-        });
-
-        r.register(new ComponentTypeHandler() {
-            public String typeName() { return "Data"; }
-            public Component load(String name, Map<String, Object> yaml, ComponentRegistry reg) {
-                return new Component(name, "Data", loadPorts(yaml), List.of(),
-                        bool(yaml, "external"), loadAttributes(yaml), loadProperties(yaml));
-            }
-        });
-
-        // Container types -- hosts (VM/PM/Worker) and groups
-        // (Zone/Colocation/HostPool) all load the same way: they hold child components
-        // via the children tree. Their distinguishing attrs ride in the properties map.
-        for (String containerType : new String[]{
-                "VM", "PM", "Worker", "Zone", "Colocation", "HostPool"}) {
-            final String t = containerType;
-            r.register(new ComponentTypeHandler() {
-                public String typeName() { return t; }
-                public Component load(String name, Map<String, Object> yaml, ComponentRegistry reg) {
-                    return new Component(name, t, List.of(), loadChildren(yaml, reg),
-                            bool(yaml, "external"), loadAttributes(yaml), loadProperties(yaml));
-                }
-            });
-        }
-
-        return r;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Component> loadChildren(Map<String, Object> yaml, ComponentRegistry reg) {
-        List<Component> children = new ArrayList<>();
-        Object raw = yaml.get("children");
-        if (raw instanceof List<?> list) {
-            for (Object item : list)
-                if (item instanceof Map<?, ?> childYaml)
-                    children.add(reg.load((Map<String, Object>) childYaml));
-        }
-        return children;
-    }
-
-    public void register(ComponentTypeHandler handler) {
-        handlers.put(handler.typeName(), handler);
+        return new ComponentRegistry();
     }
 
     @SuppressWarnings("unchecked")
     public Component load(Map<String, Object> yaml) {
         String name = (String) yaml.get("name");
         String type = (String) yaml.getOrDefault("type", "App");
-        ComponentTypeHandler handler = handlers.get(type);
-        if (handler == null)
+
+        var mm = Sam4cMetamodel.INSTANCE;
+        if (mm.find(type).isEmpty() || mm.find(type).get().abstractClass() || !mm.isA(type, "Component"))
             throw new IllegalArgumentException(
-                    "Unknown component type '" + type + "'. Known: " + handlers.keySet());
-        return handler.load(name, yaml, this);
+                    "Unknown component type '" + type + "'. Known: " + knownConcreteTypes());
+
+        List<Port> ports = List.of();
+        List<Component> members = List.of();
+        for (MReference r : mm.allReferences(type)) {
+            if (r.containment() && r.targetClass().equals("Port")) ports = loadPorts(yaml);
+            else if (r.containment() && mm.isA(r.targetClass(), "Component")) members = loadMembers(yaml, r.name());
+        }
+
+        return new Component(name, type, ports, members, loadAttributes(yaml), loadProperties(yaml));
     }
 
-    public Set<String> types() {
-        return Collections.unmodifiableSet(handlers.keySet());
+    private List<Component> loadMembers(Map<String, Object> yaml, String refName) {
+        List<Component> members = new ArrayList<>();
+        Object raw = yaml.get(refName);
+        if (raw instanceof List<?> list) {
+            for (Object item : list)
+                if (item instanceof Map<?, ?> memberYaml)
+                    members.add(load((Map<String, Object>) memberYaml));
+        }
+        return members;
+    }
+
+    private static List<String> knownConcreteTypes() {
+        return Sam4cMetamodel.ARCH.concreteClasses().stream()
+                .filter(c -> Sam4cMetamodel.INSTANCE.isA(c.name(), "Component"))
+                .map(sam4c.light.metamodel.MClass::name).sorted().toList();
     }
 
     @SuppressWarnings("unchecked")
@@ -114,33 +92,33 @@ public class ComponentRegistry {
         return v instanceof Boolean b && b;
     }
 
-    // reads the deployment fields into the untyped properties map. add a key here when a
-    // new field is declared on the metamodel.
+    // Reads every attribute + non-containment reference the metamodel declares for this
+    // type into one properties map. Shared by load() and by DiagramReader (which builds
+    // Components directly, not through load()).
+    @SuppressWarnings("unchecked")
     public static Map<String, Object> loadProperties(Map<String, Object> yaml) {
+        String type = (String) yaml.getOrDefault("type", "App");
+        var mm = Sam4cMetamodel.INSTANCE;
         Map<String, Object> props = new LinkedHashMap<>();
-        // workload deployment properties
-        if (yaml.get("image") != null)      props.put("image", yaml.get("image").toString());
-        if (yaml.get("runtime") != null)    props.put("runtime", yaml.get("runtime").toString());
-        if (yaml.get("exposure") != null)   props.put("exposure", yaml.get("exposure").toString());
-        if (yaml.get("deployedOn") != null) props.put("deployedOn", yaml.get("deployedOn").toString());
-        if (yaml.get("scale") instanceof Map<?, ?> s)     props.put("scale", s);
-        if (yaml.get("resources") instanceof Map<?, ?> r) props.put("resources", r);
-        if (yaml.get("lifecycle") != null)  props.put("lifecycle", yaml.get("lifecycle").toString());
-        if (yaml.get("schedule") != null)   props.put("schedule", yaml.get("schedule").toString());
-        if (yaml.get("persistent") != null) props.put("persistent", yaml.get("persistent"));
-        if (yaml.get("storage") instanceof Map<?, ?> st)   props.put("storage", st);
-        if (yaml.get("config") instanceof Map<?, ?> cfg)   props.put("config", cfg);
-        if (yaml.get("secrets") instanceof List<?> sec)    props.put("secrets", sec);
-        if (yaml.get("health") instanceof Map<?, ?> h)     props.put("health", h);
-        if (yaml.get("trigger") instanceof Map<?, ?> tg)   props.put("trigger", tg);
-        if (yaml.get("placement") instanceof Map<?, ?> pl) props.put("placement", pl);
-        if (yaml.get("spread") != null)     props.put("spread", yaml.get("spread").toString());
-        // host property
-        if (yaml.get("capacity") instanceof Map<?, ?> cap) props.put("capacity", cap);
-        // group properties
-        if (yaml.get("boundary") != null)     props.put("boundary", yaml.get("boundary").toString());
-        if (yaml.get("shareNetwork") != null) props.put("shareNetwork", yaml.get("shareNetwork"));
-        if (yaml.get("shareStorage") != null) props.put("shareStorage", yaml.get("shareStorage"));
+        if (mm.find(type).isEmpty()) return props;
+
+        for (MReference r : mm.allReferences(type)) {
+            if (!r.containment()) {
+                Object v = yaml.get(r.name());
+                if (v != null) props.put(r.name(), v.toString());
+            }
+        }
+        for (MAttribute a : mm.allAttributes(type)) {
+            if (a.name().equals("type") || a.name().equals("name")) continue;
+            Object v = yaml.get(a.name());
+            if (v == null) continue;
+            switch (a.type()) {
+                case MAP     -> { if (v instanceof Map<?, ?> m) props.put(a.name(), m); }
+                case LIST    -> { if (v instanceof List<?> l) props.put(a.name(), l); }
+                case BOOLEAN, INT -> props.put(a.name(), v);
+                case STRING  -> props.put(a.name(), v.toString());
+            }
+        }
         return props;
     }
 }

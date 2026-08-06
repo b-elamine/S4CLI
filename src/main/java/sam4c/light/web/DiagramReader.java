@@ -62,7 +62,8 @@ public final class DiagramReader {
             links.add(new Link((String) rl.get("port"), (String) rl.get("connector"), dir));
         }
 
-        return new Architecture(name, roots, connectors, links);
+        // The canvas has no way to author Implementations yet -- always empty for now.
+        return new Architecture(name, roots, connectors, links, List.of());
     }
 
     @SuppressWarnings("unchecked")
@@ -82,13 +83,12 @@ public final class DiagramReader {
             // reuse the loader so simple ("p") and rich ({name,number,protocol}) forms both work
             List<Port> ports = sam4c.light.registry.ComponentRegistry.loadPorts(rc);
 
-            List<Component> children = buildChildren(id, byParent);
+            List<Component> members = buildChildren(id, byParent);
 
             // Deployment properties -- reuse the loader so the editor and CLI stay in sync
             Map<String, Object> props = sam4c.light.registry.ComponentRegistry.loadProperties(rc);
 
-            result.add(new Component(cname, type, ports, children,
-                    bool(rc.get("external")), attrs, props));
+            result.add(new Component(cname, type, ports, members, attrs, props));
         }
         return result;
     }

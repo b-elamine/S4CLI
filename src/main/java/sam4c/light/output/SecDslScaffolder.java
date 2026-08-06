@@ -81,8 +81,8 @@ public class SecDslScaffolder {
         for (Component c : components) {
             c.attributes().forEach((key, value) ->
                 attrValues.computeIfAbsent(key, k -> new LinkedHashSet<>()).add(value));
-            if (!c.children().isEmpty()) {
-                collect(c.children(), attrValues);
+            if (!c.members().isEmpty()) {
+                collect(c.members(), attrValues);
             }
         }
     }

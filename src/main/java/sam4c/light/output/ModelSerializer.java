@@ -174,12 +174,12 @@ public class ModelSerializer {
                 g.writeEndArray();
             }
 
-            // Children names -- for structural reference (full child data is in the
+            // Member names -- for structural reference (full member data is in the
             // architecture section and also appears separately in sctx/tctx if matched)
-            if (!c.children().isEmpty()) {
-                g.writeFieldName("children");
+            if (!c.members().isEmpty()) {
+                g.writeFieldName("members");
                 g.writeStartArray();
-                for (Component child : c.children()) g.writeString(child.name());
+                for (Component member : c.members()) g.writeString(member.name());
                 g.writeEndArray();
             }
 
